@@ -1,0 +1,98 @@
+import org.eclipse.jetty.client.HttpClient;
+import org.eclipse.jetty.client.api.ContentResponse;
+import org.eclipse.jetty.client.api.Request;
+import org.eclipse.jetty.http.HttpMethod;
+import org.eclipse.jetty.util.HttpContent;
+import org.json.JSONObject;
+
+import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+
+public class AsyncHttpClientExample {
+
+    public static void main(String[] args) {
+        // Jetty HttpClient 생성
+        HttpClient httpClient = new HttpClient();
+        try {
+            // HttpClient 시작
+            httpClient.start();
+
+            // 비동기적으로 여러 요청 보내기
+            List<String> urls = List.of("http://example.com", "http://example.org");
+            for (String url : urls) {
+                CompletableFuture<ContentResponse> future = sendAsyncRequest(httpClient, url);
+                // 비동기 요청이 완료되기를 기다리고 결과 출력
+                future.thenAccept(response -> System.out.println("Response from " + url + ": " + response.getContentAsString()));
+
+                // 받은 응답을 다른 서버로 전달
+                forwardResponse(response, "http://another-server.com");
+            }
+
+            // 일부 요청이 완료될 때까지 대기
+            Thread.sleep(5000);
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        } finally {
+            try {
+                // HttpClient 종료
+                httpClient.stop();
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }
+    }
+
+    // 비동기 HTTP 요청 보내기
+    public static CompletableFuture<ContentResponse> sendAsyncRequest(HttpClient httpClient, String url) {
+        CompletableFuture<ContentResponse> future = new CompletableFuture<>();
+        JSONObject jsonBody = new JSONObject()
+                .put("name", "John")
+                .put("age", 30);
+        Request request = httpClient.newRequest(url)
+                .method(HttpMethod.POST)
+                .content(new HttpContent.ContentProvider() {
+                    @Override
+                    public long getLength() {
+                        return jsonBody.toString().length();
+                    }
+
+                    @Override
+                    public void writeTo(org.eclipse.jetty.util.BufferUtil.Wrapper data) {
+                        data.put(jsonBody.toString());
+                    }
+                });
+        request.send(result -> {
+            try {
+                ContentResponse response = result.get();
+                future.complete(response);
+            } catch (InterruptedException | ExecutionException e) {
+                future.completeExceptionally(e);
+            }
+        });
+        return future;
+    }
+
+    // 받은 응답을 다른 서버로 전달
+    public static void forwardResponse(ContentResponse response, String forwardUrl) {
+        // 결과를 전달할 서버로 요청 보내기
+        HttpClient forwardClient = new HttpClient();
+        try {
+            // HttpClient 시작
+            forwardClient.start();
+            forwardClient.POST(forwardUrl)
+                    .content(response.getContentAsString())
+                    .send();
+        } catch (Exception e) {
+            e.printStackTrace();
+        } finally {
+            try {
+                // HttpClient 종료
+                forwardClient.stop();
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }
+    }
+}
